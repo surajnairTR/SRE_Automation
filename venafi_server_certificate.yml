@@ -1,0 +1,58 @@
+---
+- name: "Execute powershell script on Vms"
+  hosts: dynamically_created_hosts  # Replace with  target server or group of servers
+  gather_facts: false 
+  any_errors_fatal: true
+
+  env:
+    ANSIBLE_INV_USERNAME: "${{ secrets.ANSIBLE_INV_USERNAME }}"
+    ANSIBLE_INV_PAT: "${{ secrets.ANSIBLE_INV_PAT }}"
+    VAULT_PASS: "${{ secrets.ANSIBLE_VAULT_PASS }}"
+    ANSIBLE_ENV: "${{ inputs.ANSIBLE_ENV }}"
+    ENVIRONMENT_NAME: "${{ github.event.inputs.environment_name}}"
+
+  vars:
+    powershell_script_path: C:\Users\6120089\OneDrive - Thomson Reuters Incorporated\Desktop\Docs\Automation 2023\Cert install\Import server cert.ps1
+    script_arguments: arg1    # Replace with any arguments your script requires (optional)
+
+  tasks:
+
+    - add_host:
+        name: "{{ item }}"
+        groups: dynamically_created_hosts
+      with_items: "{{ vm_list }}"
+      
+  
+    - name: Run the PowerShell script
+      win_shell: |
+        # Replace these values with actual file paths and passwords
+        $pfxFilePath = "highq_ansible-scripts/newInstanceDeploy/SRE/venafi_certificate"
+        $pfxPassword = "{{certificate_password}}"
+        $certStoreLocation = "Cert:\LocalMachine\My"  # change this to the appropriate store location
+
+        # Load the certificate from the PFX file
+        $cert = Import-PfxCertificate -FilePath $pfxFilePath -Password (ConvertTo-SecureString -String $pfxPassword -Force -AsPlainText)
+
+        # Check if the certificate already exists in the store
+        $existingCert = Get-ChildItem -Path $certStoreLocation | Where-Object { $_.Thumbprint -eq $cert.Thumbprint }
+
+        if ($existingCert) {
+            Write-Host "Certificate with Thumbprint $($cert.Thumbprint) already exists in the store."
+        } else {
+            # Install the certificate in the certificate store
+            $cert | Install-PfxCertificate -CertStoreLocation $certStoreLocation -Password (ConvertTo-SecureString -String $pfxPassword -Force -AsPlainText)
+            Write-Host "Certificate with Thumbprint $($cert.Thumbprint) installed in the store."
+        }
+
+        # Display the installed certificate information
+        $installedCert = Get-ChildItem -Path $certStoreLocation | Where-Object { $_.Thumbprint -eq $cert.Thumbprint }
+
+        if ($installedCert) {
+            Write-Host "Installed Certificate Information:"
+            Write-Host "Subject: $($installedCert.Subject)"
+            Write-Host "Thumbprint: $($installedCert.Thumbprint)"
+        } else {
+            Write-Host "Certificate installation failed."
+        }
+      become_method: runas
+      become_user: Administrator   # Replace with an appropriate user with admin rights
